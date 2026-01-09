@@ -1,5 +1,8 @@
 import {useState, useEffect} from 'react';
 import { useParams} from 'react-router-dom';
+import { io } from 'socket.io-client';
+
+const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:5000');
 
 const Game = () => {
     const {gameId} = useParams();
@@ -27,10 +30,18 @@ const Game = () => {
         };
 
         fetchGame();
-        const interval = setInterval(fetchGame,1000);
+        
+       //Socket: Join the room
+       socket.emit('join_room',gameId);
 
-        return () => clearInterval(interval);
+       socket.on('receive_move', (updatedGame) => {
+        console.log('Receive Move via Socket!');
+        setGame(updatedGame);
+       });
 
+       return () => {
+        socket.off('receive_move');
+       };
     },[gameId,myUsername]);
 
     const handleCellClick = async (index) => {
@@ -40,79 +51,62 @@ const Game = () => {
 
         const mySymbol = game.players.playerX === myUsername ? 'X' : 'O';
 
-        try {
-            const res = await fetch('http://localhost:5000/api/game/move', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    gameId,
-                    index,
-                    player: mySymbol
-                })
-            });
-
-            const data = await res.json();
-            if(!res.ok){
-                setMsg(data.message);
-                setTimeout(() => setMsg(""),2000);
-            }
-        } catch (error) {
-            console.error("Move failed",error);
-        }
+        socket.emit('send_move', {
+            gameId, 
+            index,
+            player: mySymbol
+        });
     };
 
-    // if(!myUsername){
-    //     return (
-    //         <div className="card">
-    //             <h2>Security Check</h2>    
-    //             <p>Please re-enter your name to play:</p>
-    //             <input placeholder="Name used in lobby" id = "confirmName"/>
-                
-    //             <button onClick = { () => setMyUsername(document.getElementById("confirmName").value)}>Join Room</button>
-    //         </div>
-    //     );
-    // }
-    
-    if (!game) return <div> Loading Game Room...</div>
+    // ... inside Game.jsx ...
+
+    if (!game) return <div> Loading Game Room...</div>;
 
     return (
-        <div style={{textAlign: "center",marginTop: "20px"}}>
+        <div style={{textAlign: "center", marginTop: "20px"}}>
             <h1>Room Code: {gameId}</h1>
+            
+            {/* DEBUG: This proves the data exists. If you see "X" here, the backend is perfect. */}
+            <div style={{background: '#333', color: '#fff', padding: '10px', margin: '10px'}}>
+                DEBUG DATA: {JSON.stringify(game.board)}
+            </div>
 
             <div style={{ marginBottom: "20px"}}>
                 <p>Status: <strong>{game.status}</strong></p>
                 <p>Current Turn: <strong>Player {game.turn}</strong></p>
-
                 {msg && <div style={{color: "red", fontWeight: "bold"}}>{msg}</div>}
-
-                {game.winner && (
-                    <div style={{ color: "green", fontSize: "24px", fontWeight: "bold"}}>
-                        {game.winner === 'draw' ? "It's a Draw!" : `Winner: ${game.winner}`}</div>
-                )}
             </div>
 
             <div style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(3,100px)",
+                gridTemplateColumns: "repeat(3, 100px)",
                 gap: "10px",
                 justifyContent: "center"
             }}>
-                {game.board.map((cell,idx) => (
+                {game.board.map((cell, idx) => (
                     <div 
                         key={idx}
                         onClick={() => handleCellClick(idx)}
                         style={{
                             width: "100px",
                             height: "100px",
+                            backgroundColor: "#f0f0f0", 
+                            
+                            // 🛑 THE FIXES ARE HERE:
+                            color: "red",               // Force text to RED (High Contrast)
                             display: "flex",
-                            alginItems: "center",
+                            alignItems: "center",       // Fixed spelling (was alginItems)
+                            justifyContent: "center",
+                            
                             fontSize: "40px",
                             fontWeight: "bold",
                             cursor: "pointer",
                             border: "2px solid #333"
-                        }}>
-                            {cell}
-                        </div>
+                        }}
+                    >
+                        {/* If cell is null/empty, render a space to keep height */}
+                        {cell || "\u00A0"} 
+                    </div>
                 ))}
             </div>
 
